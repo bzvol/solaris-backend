@@ -5,7 +5,8 @@ import re
 
 app = Flask(__name__)
 em = EmMorphPy()
-grouping_pattern = re.compile(r"(?P<prev>[a-záéíőűöüóú]+\+)?(?P<word>[a-záéíőűöüóú]+)\[(?P<wordtype>[^]]+)]=")
+grouping_pattern = re.compile(
+    r"(?P<prev>[a-záéíőűöüóú]+\+)?(?P<word>[a-záéíőűöüóú]+)\[(?P<wordtype>[^]]+)]=")
 
 
 @app.route('/api/', methods=['GET', 'POST'])
@@ -20,7 +21,7 @@ def morph_analysis():
         words.append(analyze_word(word))
 
     res = {'text': text, 'words': words}
-    return Response(json.dumps(res), status=200, mimetype='application/json')
+    return Response(json.dumps(res, ensure_ascii=False), status=200, mimetype='application/json')
 
 
 def analyze_word(word):
@@ -32,8 +33,11 @@ def analyze_word(word):
         analysis_data = dict(prefixes=[], compound_parts=[])
         matches = grouping_pattern.findall(analysis)
 
+        has_pos_type = any([match[2] in pos for match in matches])
+        analysis_data['has_pos_type'] = has_pos_type
+
         i = 0
-        while matches[i][2] not in pos:
+        while has_pos_type and matches[i][2] not in pos:
             prefix, prefix_type = matches[i][1], matches[i][2]
             analysis_data['prefixes'].append({
                 'part': prefix,
@@ -41,16 +45,23 @@ def analyze_word(word):
             })
             i += 1
 
+        current_part_defaults = {'root':None,'suffixes':[]}
         current_part = None
         for _, word_part, word_type in matches[i:]:
+            if not has_pos_type:
+                if current_part is not None:
+                    analysis_data['compound_parts'].append(current_part)
+                current_part = current_part_defaults.copy()
+                    
+                current_part['root'] = {'part': word_part, 'type': word_type}
+                continue
+            
             if word_type in pos:
                 if current_part is not None:
                     analysis_data['compound_parts'].append(current_part)
-
-                current_part = {
-                    'root': {'part': word_part, 'type': word_type},
-                    'suffixes': []
-                }
+                current_part = current_part_defaults.copy()
+                
+                current_part['root'] = {'part': word_part, 'type': word_type}
                 continue
 
             current_part['suffixes'].append({
